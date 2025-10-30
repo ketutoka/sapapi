@@ -13,6 +13,10 @@ import threading
 import time
 from sqlalchemy import text, inspect
 from sqlalchemy.exc import OperationalError
+from dotenv import load_dotenv
+
+# Load environment variables dari file .env
+load_dotenv()
 
 # Inisialisasi Flask app
 app = Flask(__name__)
