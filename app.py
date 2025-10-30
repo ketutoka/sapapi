@@ -19,12 +19,19 @@ from dotenv import load_dotenv
 # Load environment variables dari file .env
 load_dotenv()
 
-# Setup logging untuk debug mode
+# Setup logging untuk debug mode dengan konfigurasi yang lebih eksplisit
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()  # Ensure output goes to console
+    ]
 )
 logger = logging.getLogger(__name__)
+
+# Set Flask's logger to also show debug info
+flask_logger = logging.getLogger('werkzeug')
+flask_logger.setLevel(logging.INFO)
 
 # Inisialisasi Flask app
 app = Flask(__name__)
@@ -345,30 +352,62 @@ class SalesDataResource(Resource):
         Logic: Delete-Insert berdasarkan vkorg (Sales Organization) dan erdat (Entry Date)
         """
         try:
-            # Log raw request data untuk debugging
+            # Debug logging dengan print dan logger
             raw_data = request.get_data()
             content_type = request.content_type
+            
+            # Print statements untuk memastikan output muncul
+            print(f"\n🔍 === DEBUG POST /api/sales ===", flush=True)
+            print(f"📥 Content-Type: {content_type}", flush=True)
+            print(f"📥 Raw data length: {len(raw_data)} bytes", flush=True)
+            print(f"📥 Raw request data: {raw_data}", flush=True)
+            
+            # Logger backup
             logger.info(f"📥 POST /api/sales - Content-Type: {content_type}")
             logger.info(f"📥 Raw request data: {raw_data}")
             
-            data = request.get_json()
+            # Handle JSON parsing dengan error handling
+            try:
+                data = request.get_json()
+                if data is None and raw_data:
+                    print("⚠️ WARNING: JSON parsing returned None but raw data exists", flush=True)
+                    print(f"⚠️ Trying to decode raw data as JSON manually...", flush=True)
+                    try:
+                        data = json.loads(raw_data.decode('utf-8'))
+                        print(f"✅ Manual JSON parsing successful", flush=True)
+                    except Exception as manual_parse_error:
+                        print(f"❌ Manual JSON parsing failed: {manual_parse_error}", flush=True)
+                        data = None
+            except Exception as json_error:
+                print(f"❌ JSON parsing error: {json_error}", flush=True)
+                print(f"📥 Raw data causing error: {raw_data}", flush=True)
+                api.abort(400, f'Invalid JSON format: {str(json_error)}')
+            
+            print(f"📊 Parsed JSON data: {json.dumps(data, indent=2, default=str)}", flush=True)
             logger.info(f"📊 Parsed JSON data: {json.dumps(data, indent=2, default=str)}")
             
             if not data:
+                print("❌ ERROR: No data provided in request", flush=True)
                 logger.error("❌ No data provided in request")
                 api.abort(400, 'No data provided')
             
             # Validasi field required
             if isinstance(data, list):
+                print(f"📋 Processing array with {len(data)} records", flush=True)
                 logger.info(f"📋 Processing array with {len(data)} records")
                 for i, item in enumerate(data):
                     if 'vkorg' not in item or 'erdat' not in item:
-                        logger.error(f"❌ Record {i+1}: Missing required fields - {item}")
+                        error_msg = f"❌ Record {i+1}: Missing required fields - {item}"
+                        print(error_msg, flush=True)
+                        logger.error(error_msg)
                         api.abort(400, f'Record {i+1}: vkorg dan erdat wajib diisi')
             else:
+                print(f"📋 Processing single record", flush=True)
                 logger.info(f"📋 Processing single record")
                 if 'vkorg' not in data or 'erdat' not in data:
-                    logger.error(f"❌ Single record: Missing required fields - {data}")
+                    error_msg = f"❌ Single record: Missing required fields - {data}"
+                    print(error_msg, flush=True)
+                    logger.error(error_msg)
                     api.abort(400, 'vkorg dan erdat wajib diisi')
             
             # Process data dengan SalesService
@@ -377,7 +416,9 @@ class SalesDataResource(Resource):
             else:
                 result = sales_service.process_sales_data_batch([data])
             
+            print(f"✅ Successfully processed data: {result}", flush=True)
             logger.info(f"✅ Successfully processed data: {result}")
+            print(f"🔍 === END DEBUG POST /api/sales ===\n", flush=True)
             
             return {
                 'status': 'success',
@@ -387,10 +428,18 @@ class SalesDataResource(Resource):
             }, 200
             
         except ValueError as ve:
-            logger.error(f"❌ ValueError: {str(ve)} - Request data: {json.dumps(data if 'data' in locals() else 'No data parsed', default=str)}")
+            error_msg = f"❌ ValueError: {str(ve)}"
+            data_info = json.dumps(data if 'data' in locals() else 'No data parsed', default=str)
+            print(f"{error_msg} - Request data: {data_info}", flush=True)
+            print(f"🔍 === END DEBUG POST /api/sales (ValueError) ===\n", flush=True)
+            logger.error(f"{error_msg} - Request data: {data_info}")
             api.abort(400, str(ve))
         except Exception as e:
-            logger.error(f"❌ Exception: {str(e)} - Request data: {json.dumps(data if 'data' in locals() else 'No data parsed', default=str)}")
+            error_msg = f"❌ Exception: {str(e)}"
+            data_info = json.dumps(data if 'data' in locals() else 'No data parsed', default=str)
+            print(f"{error_msg} - Request data: {data_info}", flush=True)
+            print(f"🔍 === END DEBUG POST /api/sales (Exception) ===\n", flush=True)
+            logger.error(f"{error_msg} - Request data: {data_info}")
             api.abort(500, f'Internal server error: {str(e)}')
 
 @sales_ns.route('/sample')
