@@ -96,6 +96,27 @@ response_model = api.model('ApiResponse', {
     'deleted_records': fields.Integer(description='Number of deleted records', example=0)
 })
 
+# CDC Models
+cdc_parameters_model = api.model('CDCParameters', {
+    'vkorg': fields.String(required=True, description='Sales Organization', example='1000'),
+    'start_date': fields.String(required=True, description='Start Date (YYYY-MM-DD)', example='2023-12-01'),
+    'end_date': fields.String(required=True, description='End Date (YYYY-MM-DD)', example='2023-12-31')
+})
+
+cdc_request_model = api.model('CDCRequest', {
+    'cdc_parameters': fields.Nested(cdc_parameters_model, required=True, description='CDC Parameters for delete range'),
+    'data': fields.List(fields.Nested(sales_model), required=True, description='Sales data to insert')
+})
+
+cdc_response_model = api.model('CDCResponse', {
+    'status': fields.String(description='Response status', example='success'),
+    'message': fields.String(description='Response message', example='CDC process completed successfully'),
+    'processed_records': fields.Integer(description='Number of processed records', example=100),
+    'deleted_records': fields.Integer(description='Number of deleted records', example=50),
+    'cdc_parameters': fields.Nested(cdc_parameters_model, description='CDC parameters used'),
+    'date_range_processed': fields.String(description='Date range processed', example='2023-12-01 to 2023-12-31')
+})
+
 health_model = api.model('HealthResponse', {
     'status': fields.String(description='Health status', example='healthy'),
     'message': fields.String(description='Health message', example='SAP API is running'),
@@ -296,6 +317,15 @@ def create_table_if_not_exists():
 # Initialize services
 sales_service = SalesService()
 
+# Import CDC service (fallback to same service if file not exist)
+try:
+    from services.sales_service_cdc import SalesService as CDCSalesService
+    # Initialize CDC service with current Flask app context
+    cdc_sales_service = CDCSalesService(db_instance=db, model_class=DwhSales)
+except ImportError:
+    # Fallback to regular service if CDC service file not found
+    cdc_sales_service = sales_service
+
 # Testing Functions (Integrated)
 def run_api_tests(base_url):
     """Run comprehensive API tests"""
@@ -479,6 +509,152 @@ class SampleData(Resource):
                     "netwr": 2000000.0
                 }
             ]
+        }, 200
+
+# CDC (Change Data Capture) Endpoints
+@sales_ns.route('/cdc')
+class CDCProcessor(Resource):
+    @api.doc('process_cdc_data')
+    @api.expect(cdc_request_model, validate=True)
+    @api.marshal_with(cdc_response_model)
+    def post(self):
+        """
+        Change Data Capture (CDC) Process - Advanced Delete-Insert Logic
+        
+        Proses CDC yang tepat:
+        1. Terima parameter CDC (vkorg, start_date, end_date)
+        2. Delete semua data dalam range tersebut
+        3. Insert semua data baru
+        
+        Use case: SAP mengirim data untuk periode tertentu,
+        kita perlu delete data lama di periode itu lalu insert data baru
+        """
+        try:
+            data = request.get_json()
+            
+            print(f"\n🔄 === DEBUG POST /api/sales/cdc ===", flush=True)
+            print(f"📥 CDC Request data: {json.dumps(data, indent=2, default=str)}", flush=True)
+            
+            if not data:
+                api.abort(400, 'No data provided')
+            
+            # Validate structure
+            if 'cdc_parameters' not in data:
+                api.abort(400, 'cdc_parameters is required')
+            
+            if 'data' not in data:
+                api.abort(400, 'data array is required')
+            
+            cdc_params = data['cdc_parameters']
+            sales_data = data['data']
+            
+            # Validate CDC parameters
+            required_cdc_fields = ['vkorg', 'start_date', 'end_date']
+            for field in required_cdc_fields:
+                if field not in cdc_params:
+                    api.abort(400, f'CDC parameter {field} is required')
+            
+            print(f"📊 CDC Parameters: {json.dumps(cdc_params, indent=2)}", flush=True)
+            print(f"📊 Data records count: {len(sales_data)}", flush=True)
+            
+            # Process CDC dengan service baru
+            result = cdc_sales_service.process_sales_data_cdc(cdc_params, sales_data)
+            
+            print(f"✅ CDC process completed: {result}", flush=True)
+            print(f"🔄 === END DEBUG POST /api/sales/cdc ===\n", flush=True)
+            
+            return {
+                'status': 'success',
+                'message': 'CDC process completed successfully',
+                'processed_records': result['processed_records'],
+                'deleted_records': result['deleted_records'],
+                'cdc_parameters': result['cdc_parameters'],
+                'date_range_processed': result['date_range_processed']
+            }, 200
+            
+        except ValueError as ve:
+            error_msg = f"❌ CDC ValueError: {str(ve)}"
+            print(f"{error_msg}", flush=True)
+            print(f"🔄 === END DEBUG POST /api/sales/cdc (ValueError) ===\n", flush=True)
+            api.abort(400, str(ve))
+        except Exception as e:
+            error_msg = f"❌ CDC Exception: {str(e)}"
+            print(f"{error_msg}", flush=True)
+            print(f"🔄 === END DEBUG POST /api/sales/cdc (Exception) ===\n", flush=True)
+            api.abort(500, f'Internal server error: {str(e)}')
+
+@sales_ns.route('/cdc/statistics')
+class CDCStatistics(Resource):
+    @api.doc('get_cdc_statistics')
+    @api.expect(cdc_parameters_model, validate=True)
+    def post(self):
+        """
+        Get CDC Statistics - Preview apa yang akan di-delete
+        
+        Endpoint untuk preview sebelum melakukan CDC process
+        Menampilkan berapa record yang akan terhapus dalam range yang ditentukan
+        """
+        try:
+            data = request.get_json()
+            
+            if not data:
+                api.abort(400, 'CDC parameters required')
+            
+            # Validate CDC parameters
+            required_fields = ['vkorg', 'start_date', 'end_date']
+            for field in required_fields:
+                if field not in data:
+                    api.abort(400, f'{field} is required')
+            
+            # Get statistics
+            stats = cdc_sales_service.get_cdc_statistics(
+                data['vkorg'], 
+                data['start_date'], 
+                data['end_date']
+            )
+            
+            return {
+                'status': 'success',
+                'message': 'CDC statistics retrieved',
+                'statistics': stats
+            }, 200
+            
+        except Exception as e:
+            api.abort(500, f'Error getting CDC statistics: {str(e)}')
+
+@sales_ns.route('/cdc/sample')
+class CDCSample(Resource):
+    @api.doc('get_cdc_sample')
+    def get(self):
+        """Contoh format CDC request untuk testing"""
+        return {
+            "cdc_request_example": {
+                "cdc_parameters": {
+                    "vkorg": "1000",
+                    "start_date": "2023-12-01",
+                    "end_date": "2023-12-31"
+                },
+                "data": [
+                    {
+                        "vkorg": "1000",
+                        "erdat": "2023-12-15",
+                        "matnr": "MATERIAL001",
+                        "kwmeng": 100.0,
+                        "netwr": 1000000.0
+                    },
+                    {
+                        "vkorg": "1000",
+                        "erdat": "2023-12-20",
+                        "matnr": "MATERIAL002",
+                        "kwmeng": 200.0,
+                        "netwr": 2000000.0
+                    }
+                ]
+            },
+            "explanation": {
+                "process": "1. Delete all records for vkorg=1000 from 2023-12-01 to 2023-12-31, then 2. Insert new data",
+                "use_case": "SAP sends complete data for a period, we need to replace all data in that period"
+            }
         }, 200
 
 # Database Management Endpoints

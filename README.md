@@ -7,6 +7,7 @@ Aplikasi Web API Python untuk integrasi data SAP dengan documentation lengkap da
 - **🚀 Flask-RESTX** dengan Swagger UI Documentation di `/docs/`
 - **📊 POST Endpoint** untuk menyimpan data sales dari SAP
 - **🔄 Delete-Insert Logic** berdasarkan `vkorg` (Sales Organization) dan `erdat` (Entry Date)  
+- **📈 CDC (Change Data Capture)** dengan date range parameters untuk bulk data refresh
 - **✅ Data Validation** untuk memastikan integritas data
 - **🗄️ Database Support** untuk SQLite (development), PostgreSQL, MySQL, SQL Server
 - **🧪 Integrated Testing** endpoint di `/api/test/run`
@@ -40,12 +41,58 @@ python app.py
 |----------|--------|-------------|
 | `/docs/` | GET | **Swagger UI Documentation** 📖 |
 | `/api/health` | GET | Health check status |
-| `/api/sales` | POST | Submit sales data (with delete-insert logic) |
-| `/api/sales/sample` | GET | Sample data format |
+| `/api/sales` | POST | Submit sales data (legacy delete-insert logic) |
+| `/api/sales/cdc` | POST | **CDC Process** - Delete by date range, then insert all data |
+| `/api/sales/cdc/statistics` | POST | **CDC Preview** - Show what will be deleted |
+| `/api/sales/cdc/sample` | GET | CDC request format examples |
+| `/api/sales/sample` | GET | Legacy sales data format |
 | `/api/test/run` | GET | **Run integrated API tests** 🧪 |
 
-### POST /api/sales
-Endpoint untuk menyimpan data sales dari SAP.
+### POST /api/sales/cdc (NEW - Recommended)
+**Change Data Capture** endpoint untuk bulk data refresh dengan date range control.
+
+**Request Body:**
+```json
+{
+  "cdc_parameters": {
+    "vkorg": "1000",
+    "start_date": "2023-12-01", 
+    "end_date": "2023-12-31"
+  },
+  "data": [
+    {
+      "vkorg": "1000",
+      "erdat": "2023-12-15",
+      "matnr": "MATERIAL001",
+      "kwmeng": 100.000,
+      "netwr": 1000000.00
+    }
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "CDC process completed successfully",
+  "processed_records": 150,
+  "deleted_records": 120,
+  "cdc_parameters": {
+    "vkorg": "1000",
+    "start_date": "2023-12-01",
+    "end_date": "2023-12-31"
+  },
+  "date_range_processed": "2023-12-01 to 2023-12-31"
+}
+```
+
+**Process:**
+1. Delete semua records untuk vkorg="1000" dari 2023-12-01 sampai 2023-12-31
+2. Insert semua data baru yang dikirim
+
+### POST /api/sales (Legacy)
+Endpoint untuk menyimpan data sales dari SAP dengan logic delete-insert per tanggal.
 
 **Request Body (Single Record):**
 ```json
