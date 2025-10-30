@@ -23,8 +23,7 @@ ExecStart=/opt/sapapi/venv/bin/gunicorn \
     --bind ${HOST}:${PORT} \
     --workers ${GUNICORN_WORKERS:-4} \
     --threads ${GUNICORN_THREADS:-2} \
-    --worker-class gevent \
-    --worker-connections 1000 \
+    --worker-class sync \
     --max-requests 1000 \
     --max-requests-jitter 100 \
     --preload \

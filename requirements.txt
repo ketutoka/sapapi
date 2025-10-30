@@ -34,6 +34,9 @@ loguru>=0.7.0
 # WSGI Server untuk production
 gunicorn>=21.0.0
 
+# Async worker support (for high performance)
+gevent>=22.10.0
+
 # Optional database drivers (uncomment jika diperlukan)
 # MySQL
 # PyMySQL>=1.1.0
