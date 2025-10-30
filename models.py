@@ -33,7 +33,7 @@ class SalesData(db.Model):
     
     # Route
     route = db.Column(db.String(6), nullable=True, comment='Route')
-    bezei = db.Column(db.String(30), nullable=True, comment='Route Description')
+    bezei = db.Column(db.String(40), nullable=True, comment='Route Description')
     
     # Customer
     kunnr = db.Column(db.String(10), nullable=True, comment='Customer')
@@ -42,7 +42,7 @@ class SalesData(db.Model):
     
     # Material Group (additional)
     mvgr1 = db.Column(db.String(3), nullable=True, comment='Material Group 1')
-    mvgtx = db.Column(db.String(20), nullable=True, comment='Material Group Description')
+    mvgtx = db.Column(db.String(40), nullable=True, comment='Material Group Description')
     
     # Unit and Currency
     meins = db.Column(db.String(3), nullable=True, comment='Unit of Measure')

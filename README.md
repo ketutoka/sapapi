@@ -164,12 +164,12 @@ Table: `sales_data`
 | matnr | String(40) | Material Number |
 | maktx | String(40) | Material Description |
 | route | String(6) | Route |
-| bezei | String(30) | Route Description |
+| bezei | String(40) | Route Description |
 | kunnr | String(10) | Customer |
 | name1 | String(35) | Customer Name |
 | sorlt | String(10) | Sort Customer Name |
 | mvgr1 | String(3) | Material Group 1 |
-| mvgtx | String(20) | Material Group Description |
+| mvgtx | String(40) | Material Group Description |
 | meins | String(3) | Unit of Measure |
 | waerk | String(5) | Currency |
 | kwmeng | Numeric(13,3) | Sales Quantity |
