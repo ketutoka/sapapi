@@ -1,0 +1,62 @@
+[Unit]
+Description=SAP API Flask Application
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=exec
+User=sapapi
+Group=sapapi
+WorkingDirectory=/opt/sapapi
+
+# System-level critical environment variables
+Environment=PATH=/opt/sapapi/venv/bin
+Environment=FLASK_ENV=production
+Environment=DEBUG=false
+
+# Load additional environment variables from .env file
+# This avoids duplication and makes management easier
+EnvironmentFile=/opt/sapapi/.env
+
+# Gunicorn configuration with environment variables
+ExecStart=/opt/sapapi/venv/bin/gunicorn \
+    --bind ${HOST}:${PORT} \
+    --workers ${GUNICORN_WORKERS:-4} \
+    --threads ${GUNICORN_THREADS:-2} \
+    --worker-class gevent \
+    --worker-connections 1000 \
+    --max-requests 1000 \
+    --max-requests-jitter 100 \
+    --preload \
+    --timeout ${GUNICORN_TIMEOUT:-30} \
+    --keep-alive ${GUNICORN_KEEPALIVE:-2} \
+    --log-level info \
+    --access-logfile /var/log/sapapi/access.log \
+    --error-logfile /var/log/sapapi/error.log \
+    app:app
+
+# Restart policy
+Restart=always
+RestartSec=3
+StartLimitBurst=3
+StartLimitInterval=60s
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/sapapi
+ReadWritePaths=/opt/sapapi
+
+# Resource limits
+LimitNOFILE=65535
+LimitNPROC=4096
+
+# Health check
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
