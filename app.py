@@ -525,10 +525,10 @@ def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    # Get configuration
-    host = os.environ.get('HOST', '127.0.0.1') 
+    # Get configuration for production deployment
+    host = os.environ.get('HOST', '0.0.0.0') 
     port = int(os.environ.get('PORT', 8000))  # Default port 8000 untuk konsistensi
-    debug = app.config.get('DEBUG', True)
+    debug = os.environ.get('DEBUG', 'False').lower() == 'true'  # Default False untuk production
     
     print(f"🚀 Starting SAP API Flask Server with PostgreSQL DWH Support...")
     print(f"📍 Host: {host}")
