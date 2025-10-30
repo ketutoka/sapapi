@@ -11,12 +11,20 @@ import requests
 import json
 import threading
 import time
+import logging
 from sqlalchemy import text, inspect
 from sqlalchemy.exc import OperationalError
 from dotenv import load_dotenv
 
 # Load environment variables dari file .env
 load_dotenv()
+
+# Setup logging untuk debug mode
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Inisialisasi Flask app
 app = Flask(__name__)
@@ -337,18 +345,30 @@ class SalesDataResource(Resource):
         Logic: Delete-Insert berdasarkan vkorg (Sales Organization) dan erdat (Entry Date)
         """
         try:
+            # Log raw request data untuk debugging
+            raw_data = request.get_data()
+            content_type = request.content_type
+            logger.info(f"📥 POST /api/sales - Content-Type: {content_type}")
+            logger.info(f"📥 Raw request data: {raw_data}")
+            
             data = request.get_json()
+            logger.info(f"📊 Parsed JSON data: {json.dumps(data, indent=2, default=str)}")
             
             if not data:
+                logger.error("❌ No data provided in request")
                 api.abort(400, 'No data provided')
             
             # Validasi field required
             if isinstance(data, list):
+                logger.info(f"📋 Processing array with {len(data)} records")
                 for i, item in enumerate(data):
                     if 'vkorg' not in item or 'erdat' not in item:
+                        logger.error(f"❌ Record {i+1}: Missing required fields - {item}")
                         api.abort(400, f'Record {i+1}: vkorg dan erdat wajib diisi')
             else:
+                logger.info(f"📋 Processing single record")
                 if 'vkorg' not in data or 'erdat' not in data:
+                    logger.error(f"❌ Single record: Missing required fields - {data}")
                     api.abort(400, 'vkorg dan erdat wajib diisi')
             
             # Process data dengan SalesService
@@ -356,6 +376,8 @@ class SalesDataResource(Resource):
                 result = sales_service.process_sales_data_batch(data)
             else:
                 result = sales_service.process_sales_data_batch([data])
+            
+            logger.info(f"✅ Successfully processed data: {result}")
             
             return {
                 'status': 'success',
@@ -365,8 +387,10 @@ class SalesDataResource(Resource):
             }, 200
             
         except ValueError as ve:
+            logger.error(f"❌ ValueError: {str(ve)} - Request data: {json.dumps(data if 'data' in locals() else 'No data parsed', default=str)}")
             api.abort(400, str(ve))
         except Exception as e:
+            logger.error(f"❌ Exception: {str(e)} - Request data: {json.dumps(data if 'data' in locals() else 'No data parsed', default=str)}")
             api.abort(500, f'Internal server error: {str(e)}')
 
 @sales_ns.route('/sample')
@@ -533,6 +557,16 @@ if __name__ == '__main__':
     host = os.environ.get('HOST', '0.0.0.0') 
     port = int(os.environ.get('PORT', 8000))  # Default port 8000 untuk konsistensi
     debug = os.environ.get('DEBUG', 'False').lower() == 'true'  # Default False untuk production
+    
+    # Setup logging level berdasarkan debug mode
+    if debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.setLevel(logging.DEBUG)
+        logger.info("🐛 Debug mode enabled - detailed logging activated")
+    else:
+        logging.getLogger().setLevel(logging.INFO)
+        logger.setLevel(logging.INFO)
+        logger.info("📊 Production mode - standard logging activated")
     
     print(f"🚀 Starting SAP API Flask Server with PostgreSQL DWH Support...")
     print(f"📍 Host: {host}")
