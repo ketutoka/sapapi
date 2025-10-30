@@ -16,6 +16,7 @@ def test_valid_request():
     data = [
         {
             "vkorg": "1000",
+            "vtext": "PT. Sales",
             "erdat": "2025-10-30",
             "audat": "2025-10-30",
             "matkl": "MAT001",

@@ -51,6 +51,7 @@ Endpoint untuk menyimpan data sales dari SAP.
 ```json
 {
   "vkorg": "1000",
+  "vtext": "PT. Sales",
   "erdat": "2023-12-01",
   "audat": "2023-12-01",
   "matkl": "MAT001",
@@ -155,6 +156,7 @@ Table: `sales_data`
 | Field | Type | Description |
 |-------|------|-------------|
 | vkorg | String(4) | Sales Organization ⭐ Required |
+| vtext | String(20) | Sales Org Description|
 | erdat | Date | Entry Date ⭐ Required |
 | audat | Date | Document Date |
 | matkl | String(9) | Material Group |

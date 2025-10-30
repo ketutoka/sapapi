@@ -15,6 +15,7 @@ class SalesData(db.Model):
     
     # Sales Organization
     vkorg = db.Column(db.String(4), nullable=False, comment='Sales Organization')
+    vtext = db.Column(db.String(20), nullable=False, comment='Sales Org Description')
     
     # Entry Date (key untuk delete-insert logic)
     erdat = db.Column(db.Date, nullable=False, comment='Entry Date')
@@ -71,6 +72,7 @@ class SalesData(db.Model):
         return {
             'id': self.id,
             'vkorg': self.vkorg,
+            'vtext': self.vtext,
             'erdat': self.erdat.isoformat() if self.erdat else None,
             'audat': self.audat.isoformat() if self.audat else None,
             'matkl': self.matkl,
@@ -112,6 +114,7 @@ class SalesData(db.Model):
         
         return SalesData(
             vkorg=data.get('vkorg'),
+            vtext=data.get('vtext'),
             erdat=erdat,
             audat=audat,
             matkl=data.get('matkl'),

@@ -69,6 +69,7 @@ db = SQLAlchemy(app)
 # Model untuk request/response documentation
 sales_model = api.model('SalesData', {
     'vkorg': fields.String(required=True, description='Sales Organization', example='1000'),
+    'vtext': fields.String(required=True, description='Sales Org Description', example='PT. Sales'),
     'erdat': fields.String(required=True, description='Entry Date (YYYY-MM-DD)', example='2023-12-01'),
     'audat': fields.String(description='Document Date (YYYY-MM-DD)', example='2023-12-01'),
     'matkl': fields.String(description='Material Group', example='MAT001'),
@@ -108,6 +109,7 @@ class DwhSales(db.Model):
     
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     vkorg = db.Column(db.String(4), nullable=False, comment='Sales Organization')
+    vtext = db.Column(db.String(20), nullable=False, comment='Sales Org Description')
     erdat = db.Column(db.Date, nullable=False, comment='Entry Date')
     audat = db.Column(db.Date, nullable=True, comment='Document Date')
     matkl = db.Column(db.String(9), nullable=True, comment='Material Group')
@@ -145,6 +147,7 @@ class DwhSales(db.Model):
         return {
             'id': self.id,
             'vkorg': self.vkorg,
+            'vtext': self.vtext,
             'erdat': self.erdat.isoformat() if self.erdat else None,
             'audat': self.audat.isoformat() if self.audat else None,
             'matkl': self.matkl,
@@ -205,6 +208,7 @@ class SalesService:
                 for record in records:
                     sales_record = self.model(
                         vkorg=record.get('vkorg'),
+                        vtext=record.get('vtext'),
                         erdat=datetime.strptime(record['erdat'], '%Y-%m-%d').date() if isinstance(record['erdat'], str) else record['erdat'],
                         audat=datetime.strptime(record['audat'], '%Y-%m-%d').date() if record.get('audat') and isinstance(record['audat'], str) else record.get('audat'),
                         matkl=record.get('matkl'),
