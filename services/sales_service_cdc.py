@@ -226,56 +226,6 @@ class SalesService:
             db.session.rollback()
             raise Exception(f"Error inserting new records: {str(e)}")
     
-    def process_sales_data_cdc(self, cdc_params, data_list):
-        """
-        Process data sales dengan CDC logic yang tepat:
-        1. Terima parameter CDC (vkorg, start_date, end_date)
-        2. Delete semua data dalam range tersebut
-        3. Insert semua data baru
-        """
-        if not cdc_params:
-            raise ValueError("CDC parameters are required")
-        
-        if not data_list:
-            raise ValueError("No data provided for insertion")
-        
-        # Validate CDC parameters
-        self.validate_cdc_parameters(cdc_params)
-        
-        # Validate all data
-        for i, data in enumerate(data_list):
-            try:
-                self.validate_sales_data(data)
-            except ValueError as e:
-                raise ValueError(f"Validation error in record {i+1}: {str(e)}")
-        
-        vkorg = cdc_params['vkorg']
-        start_date = cdc_params['start_date']
-        end_date = cdc_params['end_date']
-        
-        try:
-            # Step 1: Delete existing records in the specified date range
-            deleted_count = self.delete_existing_records_by_range(vkorg, start_date, end_date)
-            
-            # Step 2: Insert all new records
-            inserted_records = self.insert_new_records(data_list)
-            
-            return {
-                'processed_records': len(inserted_records),
-                'deleted_records': deleted_count,
-                'cdc_parameters': {
-                    'vkorg': vkorg,
-                    'start_date': start_date,
-                    'end_date': end_date
-                },
-                'date_range_processed': f"{start_date} to {end_date}"
-            }
-            
-        except Exception as e:
-            db = self._get_db()
-            db.session.rollback()
-            raise Exception(f"Error processing CDC sales data: {str(e)}")
-    
     def process_sales_data_batch(self, data_list):
         """
         Process batch data sales dengan logic delete-insert (legacy method)
@@ -375,6 +325,171 @@ class SalesService:
             
         except Exception as e:
             raise Exception(f"Error retrieving sales data: {str(e)}")
+    
+    def delete_sales_by_range(self, vkorg, start_date, end_date):
+        """
+        Endpoint khusus untuk delete sales berdasarkan vkorg dan date range
+        Digunakan ketika perlu delete data sebelum melakukan bulk insert
+        """
+        try:
+            db = self._get_db()
+            SalesModel = self._get_model()
+            
+            # Validate parameters
+            if not vkorg:
+                raise ValueError("vkorg is required")
+            if not start_date or not end_date:
+                raise ValueError("start_date and end_date are required")
+            
+            # Convert string dates to date objects if needed
+            if isinstance(start_date, str):
+                start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+            if isinstance(end_date, str):
+                end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+            
+            # Validate date range
+            if start_date > end_date:
+                raise ValueError("start_date cannot be greater than end_date")
+            
+            # Get records that will be deleted (for reporting)
+            records_to_delete = db.session.query(SalesModel).filter(
+                and_(
+                    SalesModel.vkorg == vkorg,
+                    SalesModel.erdat >= start_date,
+                    SalesModel.erdat <= end_date
+                )
+            ).all()
+            
+            # Store info about deleted records
+            deleted_records_info = []
+            for record in records_to_delete:
+                deleted_records_info.append({
+                    'id': record.id,
+                    'vkorg': record.vkorg,
+                    'erdat': record.erdat.isoformat(),
+                    'matnr': record.matnr,
+                    'kunnr': record.kunnr,
+                    'kwmeng': float(record.kwmeng) if record.kwmeng else None,
+                    'netwr': float(record.netwr) if record.netwr else None
+                })
+            
+            # Delete records
+            deleted_count = db.session.query(SalesModel).filter(
+                and_(
+                    SalesModel.vkorg == vkorg,
+                    SalesModel.erdat >= start_date,
+                    SalesModel.erdat <= end_date
+                )
+            ).delete(synchronize_session=False)
+            
+            # Commit the deletion
+            db.session.commit()
+            
+            return {
+                'deleted_count': deleted_count,
+                'vkorg': vkorg,
+                'date_range': {
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat()
+                },
+                'deleted_records': deleted_records_info[:10],  # Limit to first 10 for response size
+                'total_deleted_records': len(deleted_records_info),
+                'message': f"Successfully deleted {deleted_count} records for vkorg {vkorg} from {start_date} to {end_date}"
+            }
+            
+        except Exception as e:
+            db = self._get_db()
+            db.session.rollback()
+            raise Exception(f"Error deleting sales by range: {str(e)}")
+    
+    def bulk_insert_sales(self, data_list):
+        """
+        Endpoint khusus untuk bulk insert sales data
+        Dipisah dari delete untuk flexibility dan monitoring yang lebih baik
+        """
+        try:
+            db = self._get_db()
+            SalesModel = self._get_model()
+            
+            if not data_list:
+                raise ValueError("No data provided for insertion")
+            
+            # Validate all data first
+            for i, data in enumerate(data_list):
+                try:
+                    self.validate_sales_data(data)
+                except ValueError as e:
+                    raise ValueError(f"Validation error in record {i+1}: {str(e)}")
+            
+            inserted_records = []
+            insert_summary = {
+                'by_vkorg': {},
+                'by_date': {},
+                'total_records': 0,
+                'total_amount': 0.0
+            }
+            
+            for data in data_list:
+                # Create new SalesData instance
+                if hasattr(SalesModel, 'from_dict'):
+                    sales_record = SalesModel.from_dict(data)
+                else:
+                    # Manually create instance
+                    sales_record = SalesModel(
+                        vkorg=data.get('vkorg'),
+                        vtext=data.get('vtext'),
+                        erdat=datetime.strptime(data['erdat'], '%Y-%m-%d').date() if isinstance(data['erdat'], str) else data['erdat'],
+                        audat=datetime.strptime(data['audat'], '%Y-%m-%d').date() if data.get('audat') and isinstance(data['audat'], str) else data.get('audat'),
+                        matkl=data.get('matkl'),
+                        wgbez=data.get('wgbez'),
+                        matnr=data.get('matnr'),
+                        maktx=data.get('maktx'),
+                        route=data.get('route'),
+                        bezei=data.get('bezei'),
+                        kunnr=data.get('kunnr'),
+                        name1=data.get('name1'),
+                        sorlt=data.get('sorlt'),
+                        mvgr1=data.get('mvgr1'),
+                        mvgtx=data.get('mvgtx'),
+                        meins=data.get('meins'),
+                        waerk=data.get('waerk'),
+                        kwmeng=data.get('kwmeng'),
+                        netwr=data.get('netwr')
+                    )
+                
+                db.session.add(sales_record)
+                inserted_records.append(sales_record)
+                
+                # Update summary statistics
+                vkorg = data.get('vkorg')
+                erdat = data.get('erdat')
+                netwr = data.get('netwr', 0.0)
+                
+                if vkorg:
+                    insert_summary['by_vkorg'][vkorg] = insert_summary['by_vkorg'].get(vkorg, 0) + 1
+                
+                if erdat:
+                    date_str = erdat if isinstance(erdat, str) else erdat.isoformat()
+                    insert_summary['by_date'][date_str] = insert_summary['by_date'].get(date_str, 0) + 1
+                
+                if netwr:
+                    insert_summary['total_amount'] += float(netwr)
+            
+            insert_summary['total_records'] = len(inserted_records)
+            
+            # Commit all insertions
+            db.session.commit()
+            
+            return {
+                'inserted_count': len(inserted_records),
+                'summary': insert_summary,
+                'message': f"Successfully inserted {len(inserted_records)} sales records"
+            }
+            
+        except Exception as e:
+            db = self._get_db()
+            db.session.rollback()
+            raise Exception(f"Error bulk inserting sales data: {str(e)}")
     
     def get_cdc_statistics(self, vkorg, start_date, end_date):
         """

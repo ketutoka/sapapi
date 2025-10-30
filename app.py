@@ -103,18 +103,26 @@ cdc_parameters_model = api.model('CDCParameters', {
     'end_date': fields.String(required=True, description='End Date (YYYY-MM-DD)', example='2023-12-31')
 })
 
-cdc_request_model = api.model('CDCRequest', {
-    'cdc_parameters': fields.Nested(cdc_parameters_model, required=True, description='CDC Parameters for delete range'),
-    'data': fields.List(fields.Nested(sales_model), required=True, description='Sales data to insert')
+delete_request_model = api.model('DeleteRequest', {
+    'vkorg': fields.String(required=True, description='Sales Organization', example='1000'),
+    'start_date': fields.String(required=True, description='Start Date (YYYY-MM-DD)', example='2023-12-01'),
+    'end_date': fields.String(required=True, description='End Date (YYYY-MM-DD)', example='2023-12-31')
 })
 
-cdc_response_model = api.model('CDCResponse', {
+delete_response_model = api.model('DeleteResponse', {
     'status': fields.String(description='Response status', example='success'),
-    'message': fields.String(description='Response message', example='CDC process completed successfully'),
-    'processed_records': fields.Integer(description='Number of processed records', example=100),
-    'deleted_records': fields.Integer(description='Number of deleted records', example=50),
-    'cdc_parameters': fields.Nested(cdc_parameters_model, description='CDC parameters used'),
-    'date_range_processed': fields.String(description='Date range processed', example='2023-12-01 to 2023-12-31')
+    'message': fields.String(description='Response message', example='Sales data deleted successfully'),
+    'deleted_count': fields.Integer(description='Number of deleted records', example=50),
+    'vkorg': fields.String(description='Sales Organization', example='1000'),
+    'date_range': fields.Raw(description='Date range processed'),
+    'total_deleted_records': fields.Integer(description='Total deleted records', example=50)
+})
+
+bulk_insert_response_model = api.model('BulkInsertResponse', {
+    'status': fields.String(description='Response status', example='success'),
+    'message': fields.String(description='Response message', example='Bulk insert completed successfully'),
+    'inserted_count': fields.Integer(description='Number of inserted records', example=100),
+    'summary': fields.Raw(description='Insert summary with statistics')
 })
 
 health_model = api.model('HealthResponse', {
@@ -508,79 +516,155 @@ class SampleData(Resource):
                     "kwmeng": 200.0,
                     "netwr": 2000000.0
                 }
+            ],
+            "delete_request_example": {
+                "vkorg": "1000",
+                "start_date": "2023-12-01",
+                "end_date": "2023-12-31"
+            },
+            "bulk_insert_example": [
+                {
+                    "vkorg": "1000",
+                    "vtext": "PT. Sales Indonesia",
+                    "erdat": "2023-12-15",
+                    "matnr": "MATERIAL001",
+                    "maktx": "Product A",
+                    "kunnr": "CUST001",
+                    "name1": "Customer A",
+                    "kwmeng": 100.0,
+                    "netwr": 1000000.0
+                },
+                {
+                    "vkorg": "1000",
+                    "vtext": "PT. Sales Indonesia",
+                    "erdat": "2023-12-16",
+                    "matnr": "MATERIAL002",
+                    "maktx": "Product B",
+                    "kunnr": "CUST002",
+                    "name1": "Customer B",
+                    "kwmeng": 200.0,
+                    "netwr": 2000000.0
+                }
             ]
         }, 200
 
 # CDC (Change Data Capture) Endpoints
-@sales_ns.route('/cdc')
-class CDCProcessor(Resource):
-    @api.doc('process_cdc_data')
-    @api.expect(cdc_request_model, validate=True)
-    @api.marshal_with(cdc_response_model)
+@sales_ns.route('/delete')
+class SalesDeleteResource(Resource):
+    @api.doc('delete_sales_by_range')
+    @api.expect(delete_request_model, validate=True)
+    @api.marshal_with(delete_response_model)
     def post(self):
         """
-        Change Data Capture (CDC) Process - Advanced Delete-Insert Logic
+        Delete Sales by Date Range - Endpoint khusus untuk delete data sales
         
-        Proses CDC yang tepat:
-        1. Terima parameter CDC (vkorg, start_date, end_date)
-        2. Delete semua data dalam range tersebut
-        3. Insert semua data baru
+        Endpoint terpisah untuk delete data berdasarkan:
+        - vkorg (Sales Organization)
+        - start_date dan end_date (Date Range)
         
-        Use case: SAP mengirim data untuk periode tertentu,
-        kita perlu delete data lama di periode itu lalu insert data baru
+        Use case: Delete data lama sebelum bulk insert data baru
         """
         try:
             data = request.get_json()
             
-            print(f"\n🔄 === DEBUG POST /api/sales/cdc ===", flush=True)
-            print(f"📥 CDC Request data: {json.dumps(data, indent=2, default=str)}", flush=True)
+            print(f"\n🗑️ === DEBUG POST /api/sales/delete ===", flush=True)
+            print(f"📥 Delete Request data: {json.dumps(data, indent=2, default=str)}", flush=True)
             
             if not data:
-                api.abort(400, 'No data provided')
+                api.abort(400, 'Delete parameters required')
             
-            # Validate structure
-            if 'cdc_parameters' not in data:
-                api.abort(400, 'cdc_parameters is required')
+            # Validate required fields
+            required_fields = ['vkorg', 'start_date', 'end_date']
+            for field in required_fields:
+                if field not in data:
+                    api.abort(400, f'{field} is required')
             
-            if 'data' not in data:
-                api.abort(400, 'data array is required')
+            vkorg = data['vkorg']
+            start_date = data['start_date']
+            end_date = data['end_date']
             
-            cdc_params = data['cdc_parameters']
-            sales_data = data['data']
+            print(f"🗑️ Delete Parameters: vkorg={vkorg}, start_date={start_date}, end_date={end_date}", flush=True)
             
-            # Validate CDC parameters
-            required_cdc_fields = ['vkorg', 'start_date', 'end_date']
-            for field in required_cdc_fields:
-                if field not in cdc_params:
-                    api.abort(400, f'CDC parameter {field} is required')
+            # Execute delete operation
+            result = cdc_sales_service.delete_sales_by_range(vkorg, start_date, end_date)
             
-            print(f"📊 CDC Parameters: {json.dumps(cdc_params, indent=2)}", flush=True)
-            print(f"📊 Data records count: {len(sales_data)}", flush=True)
-            
-            # Process CDC dengan service baru
-            result = cdc_sales_service.process_sales_data_cdc(cdc_params, sales_data)
-            
-            print(f"✅ CDC process completed: {result}", flush=True)
-            print(f"🔄 === END DEBUG POST /api/sales/cdc ===\n", flush=True)
+            print(f"✅ Delete operation completed: {result['deleted_count']} records deleted", flush=True)
+            print(f"🗑️ === END DEBUG POST /api/sales/delete ===\n", flush=True)
             
             return {
                 'status': 'success',
-                'message': 'CDC process completed successfully',
-                'processed_records': result['processed_records'],
-                'deleted_records': result['deleted_records'],
-                'cdc_parameters': result['cdc_parameters'],
-                'date_range_processed': result['date_range_processed']
+                'message': result['message'],
+                'deleted_count': result['deleted_count'],
+                'vkorg': result['vkorg'],
+                'date_range': result['date_range'],
+                'total_deleted_records': result['total_deleted_records']
             }, 200
             
         except ValueError as ve:
-            error_msg = f"❌ CDC ValueError: {str(ve)}"
+            error_msg = f"❌ Delete ValueError: {str(ve)}"
             print(f"{error_msg}", flush=True)
-            print(f"🔄 === END DEBUG POST /api/sales/cdc (ValueError) ===\n", flush=True)
+            print(f"🗑️ === END DEBUG POST /api/sales/delete (ValueError) ===\n", flush=True)
             api.abort(400, str(ve))
         except Exception as e:
-            error_msg = f"❌ CDC Exception: {str(e)}"
+            error_msg = f"❌ Delete Exception: {str(e)}"
             print(f"{error_msg}", flush=True)
-            print(f"🔄 === END DEBUG POST /api/sales/cdc (Exception) ===\n", flush=True)
+            print(f"🗑️ === END DEBUG POST /api/sales/delete (Exception) ===\n", flush=True)
+            api.abort(500, f'Internal server error: {str(e)}')
+
+@sales_ns.route('/bulk-insert')
+class SalesBulkInsertResource(Resource):
+    @api.doc('bulk_insert_sales')
+    @api.expect([sales_model], validate=True)
+    @api.marshal_with(bulk_insert_response_model)
+    def post(self):
+        """
+        Bulk Insert Sales Data - Endpoint khusus untuk insert banyak data sales sekaligus
+        
+        Endpoint terpisah untuk bulk insert yang optimized untuk:
+        - Insert banyak records dalam satu operasi
+        - Detailed statistics dan monitoring
+        - Validation semua data sebelum insert
+        
+        Use case: Insert data sales dalam jumlah besar setelah delete data lama
+        """
+        try:
+            data = request.get_json()
+            
+            print(f"\n📥 === DEBUG POST /api/sales/bulk-insert ===", flush=True)
+            print(f"📊 Bulk Insert Request: {len(data) if isinstance(data, list) else 'single record'} records", flush=True)
+            
+            if not data:
+                api.abort(400, 'No data provided for bulk insert')
+            
+            # Ensure data is a list
+            if not isinstance(data, list):
+                data = [data]
+            
+            print(f"📊 Processing {len(data)} records for bulk insert", flush=True)
+            
+            # Execute bulk insert operation
+            result = cdc_sales_service.bulk_insert_sales(data)
+            
+            print(f"✅ Bulk insert completed: {result['inserted_count']} records inserted", flush=True)
+            print(f"📊 Insert summary: {json.dumps(result['summary'], indent=2, default=str)}", flush=True)
+            print(f"📥 === END DEBUG POST /api/sales/bulk-insert ===\n", flush=True)
+            
+            return {
+                'status': 'success',
+                'message': result['message'],
+                'inserted_count': result['inserted_count'],
+                'summary': result['summary']
+            }, 200
+            
+        except ValueError as ve:
+            error_msg = f"❌ Bulk Insert ValueError: {str(ve)}"
+            print(f"{error_msg}", flush=True)
+            print(f"📥 === END DEBUG POST /api/sales/bulk-insert (ValueError) ===\n", flush=True)
+            api.abort(400, str(ve))
+        except Exception as e:
+            error_msg = f"❌ Bulk Insert Exception: {str(e)}"
+            print(f"{error_msg}", flush=True)
+            print(f"📥 === END DEBUG POST /api/sales/bulk-insert (Exception) ===\n", flush=True)
             api.abort(500, f'Internal server error: {str(e)}')
 
 @sales_ns.route('/cdc/statistics')
@@ -621,41 +705,6 @@ class CDCStatistics(Resource):
             
         except Exception as e:
             api.abort(500, f'Error getting CDC statistics: {str(e)}')
-
-@sales_ns.route('/cdc/sample')
-class CDCSample(Resource):
-    @api.doc('get_cdc_sample')
-    def get(self):
-        """Contoh format CDC request untuk testing"""
-        return {
-            "cdc_request_example": {
-                "cdc_parameters": {
-                    "vkorg": "1000",
-                    "start_date": "2023-12-01",
-                    "end_date": "2023-12-31"
-                },
-                "data": [
-                    {
-                        "vkorg": "1000",
-                        "erdat": "2023-12-15",
-                        "matnr": "MATERIAL001",
-                        "kwmeng": 100.0,
-                        "netwr": 1000000.0
-                    },
-                    {
-                        "vkorg": "1000",
-                        "erdat": "2023-12-20",
-                        "matnr": "MATERIAL002",
-                        "kwmeng": 200.0,
-                        "netwr": 2000000.0
-                    }
-                ]
-            },
-            "explanation": {
-                "process": "1. Delete all records for vkorg=1000 from 2023-12-01 to 2023-12-31, then 2. Insert new data",
-                "use_case": "SAP sends complete data for a period, we need to replace all data in that period"
-            }
-        }, 200
 
 # Database Management Endpoints
 @db_ns.route('/check')
@@ -837,7 +886,10 @@ if __name__ == '__main__':
     print(f"\n🌐 API Endpoints:")
     print(f"❤️ Health Check: http://{host}:{port}/api/health")
     print(f"📊 Sales Endpoint: http://{host}:{port}/api/sales")
-    print(f"📋 Sample Data: http://{host}:{port}/api/sales/sample")
+    print(f"🗑️ Delete Sales: http://{host}:{port}/api/sales/delete")
+    print(f"📥 Bulk Insert: http://{host}:{port}/api/sales/bulk-insert")
+    print(f"� Sample Data: http://{host}:{port}/api/sales/sample")
+    print(f"📊 CDC Statistics: http://{host}:{port}/api/sales/cdc/statistics")
     print(f"🧪 Run Tests: http://{host}:{port}/api/test/run")
     print(f"🗄️ Database Check: http://{host}:{port}/api/database/check")
     print(f"📦 Create Table: http://{host}:{port}/api/database/create-table")
